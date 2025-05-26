@@ -22,15 +22,19 @@ data "aws_iam_policy_document" "controller_assume_role" {
   count = local.create_iam_role ? 1 : 0
 
   # Pod Identity
-  statement {
-    actions = [
-      "sts:AssumeRole",
-      "sts:TagSession",
-    ]
+  dynamic "statement" {
+    for_each = var.enable_pod_identity ? [1] : []
 
-    principals {
-      type        = "Service"
-      identifiers = ["pods.eks.amazonaws.com"]
+    content {
+      actions = [
+        "sts:AssumeRole",
+        "sts:TagSession",
+      ]
+
+      principals {
+        type        = "Service"
+        identifiers = ["pods.eks.amazonaws.com"]
+      }
     }
   }
 
@@ -81,301 +85,7 @@ resource "aws_iam_role" "controller" {
 data "aws_iam_policy_document" "controller" {
   count = local.create_iam_role ? 1 : 0
 
-  statement {
-    sid = "AllowScopedEC2InstanceActions"
-    resources = [
-      "arn:${local.partition}:ec2:*::image/*",
-      "arn:${local.partition}:ec2:*::snapshot/*",
-      "arn:${local.partition}:ec2:*:*:spot-instances-request/*",
-      "arn:${local.partition}:ec2:*:*:security-group/*",
-      "arn:${local.partition}:ec2:*:*:subnet/*",
-      "arn:${local.partition}:ec2:*:*:launch-template/*",
-    ]
-
-    actions = [
-      "ec2:RunInstances",
-      "ec2:CreateFleet"
-    ]
-  }
-
-  statement {
-    sid = "AllowScopedEC2InstanceActionsWithTags"
-    resources = [
-      "arn:${local.partition}:ec2:*:*:fleet/*",
-      "arn:${local.partition}:ec2:*:*:instance/*",
-      "arn:${local.partition}:ec2:*:*:volume/*",
-      "arn:${local.partition}:ec2:*:*:network-interface/*",
-      "arn:${local.partition}:ec2:*:*:launch-template/*",
-      "arn:${local.partition}:ec2:*:*:spot-instances-request/*",
-    ]
-    actions = [
-      "ec2:RunInstances",
-      "ec2:CreateFleet",
-      "ec2:CreateLaunchTemplate"
-    ]
-
-    condition {
-      test     = "StringEquals"
-      variable = "aws:RequestTag/kubernetes.io/cluster/${var.cluster_name}"
-      values   = ["owned"]
-    }
-
-    condition {
-      test     = "StringLike"
-      variable = "aws:RequestTag/karpenter.sh/nodepool"
-      values   = ["*"]
-    }
-  }
-
-  statement {
-    sid = "AllowScopedResourceCreationTagging"
-    resources = [
-      "arn:${local.partition}:ec2:*:*:fleet/*",
-      "arn:${local.partition}:ec2:*:*:instance/*",
-      "arn:${local.partition}:ec2:*:*:volume/*",
-      "arn:${local.partition}:ec2:*:*:network-interface/*",
-      "arn:${local.partition}:ec2:*:*:launch-template/*",
-      "arn:${local.partition}:ec2:*:*:spot-instances-request/*",
-    ]
-    actions = ["ec2:CreateTags"]
-
-    condition {
-      test     = "StringEquals"
-      variable = "aws:RequestTag/kubernetes.io/cluster/${var.cluster_name}"
-      values   = ["owned"]
-    }
-
-    condition {
-      test     = "StringEquals"
-      variable = "ec2:CreateAction"
-      values = [
-        "RunInstances",
-        "CreateFleet",
-        "CreateLaunchTemplate",
-      ]
-    }
-
-    condition {
-      test     = "StringLike"
-      variable = "aws:RequestTag/karpenter.sh/nodepool"
-      values   = ["*"]
-    }
-  }
-
-  statement {
-    sid       = "AllowScopedResourceTagging"
-    resources = ["arn:${local.partition}:ec2:*:*:instance/*"]
-    actions   = ["ec2:CreateTags"]
-
-    condition {
-      test     = "StringEquals"
-      variable = "aws:ResourceTag/kubernetes.io/cluster/${var.cluster_name}"
-      values   = ["owned"]
-    }
-
-    condition {
-      test     = "StringLike"
-      variable = "aws:ResourceTag/karpenter.sh/nodepool"
-      values   = ["*"]
-    }
-
-    condition {
-      test     = "ForAllValues:StringEquals"
-      variable = "aws:TagKeys"
-      values = [
-        "karpenter.sh/nodeclaim",
-        "Name",
-      ]
-    }
-  }
-
-  statement {
-    sid = "AllowScopedDeletion"
-    resources = [
-      "arn:${local.partition}:ec2:*:*:instance/*",
-      "arn:${local.partition}:ec2:*:*:launch-template/*"
-    ]
-
-    actions = [
-      "ec2:TerminateInstances",
-      "ec2:DeleteLaunchTemplate"
-    ]
-
-    condition {
-      test     = "StringEquals"
-      variable = "aws:ResourceTag/kubernetes.io/cluster/${var.cluster_name}"
-      values   = ["owned"]
-    }
-
-    condition {
-      test     = "StringLike"
-      variable = "aws:ResourceTag/karpenter.sh/nodepool"
-      values   = ["*"]
-    }
-  }
-
-  statement {
-    sid       = "AllowRegionalReadActions"
-    resources = ["*"]
-    actions = [
-      "ec2:DescribeAvailabilityZones",
-      "ec2:DescribeImages",
-      "ec2:DescribeInstances",
-      "ec2:DescribeInstanceTypeOfferings",
-      "ec2:DescribeInstanceTypes",
-      "ec2:DescribeLaunchTemplates",
-      "ec2:DescribeSecurityGroups",
-      "ec2:DescribeSpotPriceHistory",
-      "ec2:DescribeSubnets"
-    ]
-
-    condition {
-      test     = "StringEquals"
-      variable = "aws:RequestedRegion"
-      values   = [local.region]
-    }
-  }
-
-  statement {
-    sid       = "AllowSSMReadActions"
-    resources = coalescelist(var.ami_id_ssm_parameter_arns, ["arn:${local.partition}:ssm:${local.region}::parameter/aws/service/*"])
-    actions   = ["ssm:GetParameter"]
-  }
-
-  statement {
-    sid       = "AllowPricingReadActions"
-    resources = ["*"]
-    actions   = ["pricing:GetProducts"]
-  }
-
-  statement {
-    sid       = "AllowInterruptionQueueActions"
-    resources = [aws_sqs_queue.this[0].arn]
-    actions = [
-      "sqs:DeleteMessage",
-      "sqs:GetQueueAttributes",
-      "sqs:GetQueueUrl",
-      "sqs:ReceiveMessage"
-    ]
-  }
-
-  statement {
-    sid       = "AllowPassingInstanceRole"
-    resources = var.create_node_iam_role ? [aws_iam_role.node[0].arn] : [var.node_iam_role_arn]
-    actions   = ["iam:PassRole"]
-
-    condition {
-      test     = "StringEquals"
-      variable = "iam:PassedToService"
-      values   = ["ec2.amazonaws.com"]
-    }
-  }
-
-  statement {
-    sid       = "AllowScopedInstanceProfileCreationActions"
-    resources = ["*"]
-    actions   = ["iam:CreateInstanceProfile"]
-
-    condition {
-      test     = "StringEquals"
-      variable = "aws:RequestTag/kubernetes.io/cluster/${var.cluster_name}"
-      values   = ["owned"]
-    }
-
-    condition {
-      test     = "StringEquals"
-      variable = "aws:RequestTag/topology.kubernetes.io/region"
-      values   = [local.region]
-    }
-
-    condition {
-      test     = "StringLike"
-      variable = "aws:RequestTag/karpenter.k8s.aws/ec2nodeclass"
-      values   = ["*"]
-    }
-  }
-
-  statement {
-    sid       = "AllowScopedInstanceProfileTagActions"
-    resources = ["*"]
-    actions   = ["iam:TagInstanceProfile"]
-
-    condition {
-      test     = "StringEquals"
-      variable = "aws:ResourceTag/kubernetes.io/cluster/${var.cluster_name}"
-      values   = ["owned"]
-    }
-
-    condition {
-      test     = "StringEquals"
-      variable = "aws:ResourceTag/topology.kubernetes.io/region"
-      values   = [local.region]
-    }
-
-    condition {
-      test     = "StringEquals"
-      variable = "aws:RequestTag/kubernetes.io/cluster/${var.cluster_name}"
-      values   = ["owned"]
-    }
-
-    condition {
-      test     = "StringEquals"
-      variable = "aws:ResourceTag/topology.kubernetes.io/region"
-      values   = [local.region]
-    }
-
-    condition {
-      test     = "StringLike"
-      variable = "aws:ResourceTag/karpenter.k8s.aws/ec2nodeclass"
-      values   = ["*"]
-    }
-
-    condition {
-      test     = "StringLike"
-      variable = "aws:RequestTag/karpenter.k8s.aws/ec2nodeclass"
-      values   = ["*"]
-    }
-  }
-
-  statement {
-    sid       = "AllowScopedInstanceProfileActions"
-    resources = ["*"]
-    actions = [
-      "iam:AddRoleToInstanceProfile",
-      "iam:RemoveRoleFromInstanceProfile",
-      "iam:DeleteInstanceProfile"
-    ]
-
-    condition {
-      test     = "StringEquals"
-      variable = "aws:ResourceTag/kubernetes.io/cluster/${var.cluster_name}"
-      values   = ["owned"]
-    }
-
-    condition {
-      test     = "StringEquals"
-      variable = "aws:ResourceTag/topology.kubernetes.io/region"
-      values   = [local.region]
-    }
-
-    condition {
-      test     = "StringLike"
-      variable = "aws:ResourceTag/karpenter.k8s.aws/ec2nodeclass"
-      values   = ["*"]
-    }
-  }
-
-  statement {
-    sid       = "AllowInstanceProfileReadActions"
-    resources = ["*"]
-    actions   = ["iam:GetInstanceProfile"]
-  }
-
-  statement {
-    sid       = "AllowAPIServerEndpointDiscovery"
-    resources = ["arn:${local.partition}:eks:${local.region}:${local.account_id}:cluster/${var.cluster_name}"]
-    actions   = ["eks:DescribeCluster"]
-  }
+  source_policy_documents = var.enable_v1_permissions ? [data.aws_iam_policy_document.v1[0].json] : [data.aws_iam_policy_document.v033[0].json]
 }
 
 resource "aws_iam_policy" "controller" {
@@ -402,6 +112,21 @@ resource "aws_iam_role_policy_attachment" "controller_additional" {
 
   role       = aws_iam_role.controller[0].name
   policy_arn = each.value
+}
+
+################################################################################
+# Pod Identity Association
+################################################################################
+
+resource "aws_eks_pod_identity_association" "karpenter" {
+  count = local.create_iam_role && var.enable_pod_identity && var.create_pod_identity_association ? 1 : 0
+
+  cluster_name    = var.cluster_name
+  namespace       = var.namespace
+  service_account = var.service_account
+  role_arn        = aws_iam_role.controller[0].arn
+
+  tags = var.tags
 }
 
 ################################################################################
@@ -437,8 +162,29 @@ data "aws_iam_policy_document" "queue" {
     principals {
       type = "Service"
       identifiers = [
-        "events.${local.dns_suffix}",
-        "sqs.${local.dns_suffix}",
+        "events.amazonaws.com",
+        "sqs.amazonaws.com",
+      ]
+    }
+  }
+  statement {
+    sid    = "DenyHTTP"
+    effect = "Deny"
+    actions = [
+      "sqs:*"
+    ]
+    resources = [aws_sqs_queue.this[0].arn]
+    condition {
+      test     = "StringEquals"
+      variable = "aws:SecureTransport"
+      values = [
+        "false"
+      ]
+    }
+    principals {
+      type = "*"
+      identifiers = [
+        "*"
       ]
     }
   }
@@ -523,7 +269,13 @@ locals {
 
   node_iam_role_name          = coalesce(var.node_iam_role_name, "Karpenter-${var.cluster_name}")
   node_iam_role_policy_prefix = "arn:${local.partition}:iam::aws:policy"
-  cni_policy                  = var.cluster_ip_family == "ipv6" ? "arn:${local.partition}:iam::${local.account_id}:policy/AmazonEKS_CNI_IPv6_Policy" : "${local.node_iam_role_policy_prefix}/AmazonEKS_CNI_Policy"
+
+  ipv4_cni_policy = { for k, v in {
+    AmazonEKS_CNI_Policy = "${local.node_iam_role_policy_prefix}/AmazonEKS_CNI_Policy"
+  } : k => v if var.node_iam_role_attach_cni_policy && var.cluster_ip_family == "ipv4" }
+  ipv6_cni_policy = { for k, v in {
+    AmazonEKS_CNI_IPv6_Policy = "arn:${data.aws_partition.current.partition}:iam::${data.aws_caller_identity.current.account_id}:policy/AmazonEKS_CNI_IPv6_Policy"
+  } : k => v if var.node_iam_role_attach_cni_policy && var.cluster_ip_family == "ipv6" }
 }
 
 data "aws_iam_policy_document" "node_assume_role" {
@@ -535,7 +287,7 @@ data "aws_iam_policy_document" "node_assume_role" {
 
     principals {
       type        = "Service"
-      identifiers = ["ec2.amazonaws.com"]
+      identifiers = ["ec2.${local.dns_suffix}"]
     }
   }
 }
@@ -558,11 +310,14 @@ resource "aws_iam_role" "node" {
 
 # Policies attached ref https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/eks_node_group
 resource "aws_iam_role_policy_attachment" "node" {
-  for_each = { for k, v in toset(compact([
-    "${local.node_iam_role_policy_prefix}/AmazonEKSWorkerNodePolicy",
-    "${local.node_iam_role_policy_prefix}/AmazonEC2ContainerRegistryReadOnly",
-    var.node_iam_role_attach_cni_policy ? local.cni_policy : "",
-  ])) : k => v if local.create_node_iam_role }
+  for_each = { for k, v in merge(
+    {
+      AmazonEKSWorkerNodePolicy          = "${local.node_iam_role_policy_prefix}/AmazonEKSWorkerNodePolicy"
+      AmazonEC2ContainerRegistryReadOnly = "${local.node_iam_role_policy_prefix}/AmazonEC2ContainerRegistryReadOnly"
+    },
+    local.ipv4_cni_policy,
+    local.ipv6_cni_policy
+  ) : k => v if local.create_node_iam_role }
 
   policy_arn = each.value
   role       = aws_iam_role.node[0].name

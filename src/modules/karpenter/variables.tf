@@ -92,6 +92,12 @@ variable "iam_policy_description" {
   default     = "Karpenter controller IAM policy"
 }
 
+variable "iam_policy_statements" {
+  description = "A list of IAM policy [statements](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/iam_policy_document#statement) - used for adding specific IAM permissions as needed"
+  type        = any
+  default     = []
+}
+
 variable "iam_role_policies" {
   description = "Policies to attach to the IAM role in `{'static_name' = 'policy_arn'}` format"
   type        = map(string)
@@ -104,12 +110,25 @@ variable "ami_id_ssm_parameter_arns" {
   default     = []
 }
 
+variable "enable_pod_identity" {
+  description = "Determines whether to enable support for EKS pod identity"
+  type        = bool
+  default     = true
+}
+
+# TODO - make v1 permssions the default policy at next breaking change
+variable "enable_v1_permissions" {
+  description = "Determines whether to enable permissions suitable for v1+ (`true`) or for v0.33.x-v0.37.x (`false`)"
+  type        = bool
+  default     = false
+}
+
 ################################################################################
 # IAM Role for Service Account (IRSA)
 ################################################################################
 
 variable "enable_irsa" {
-  description = "Determines whether to enable support IAM role for service account"
+  description = "Determines whether to enable support for IAM role for service accounts"
   type        = bool
   default     = false
 }
@@ -130,6 +149,28 @@ variable "irsa_assume_role_condition_test" {
   description = "Name of the [IAM condition operator](https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_policies_elements_condition_operators.html) to evaluate when assuming the role"
   type        = string
   default     = "StringEquals"
+}
+
+################################################################################
+# Pod Identity Association
+################################################################################
+# TODO - Change default to `true` at next breaking change
+variable "create_pod_identity_association" {
+  description = "Determines whether to create pod identity association"
+  type        = bool
+  default     = false
+}
+
+variable "namespace" {
+  description = "Namespace to associate with the Karpenter Pod Identity"
+  type        = string
+  default     = "kube-system"
+}
+
+variable "service_account" {
+  description = "Service account to associate with the Karpenter Pod Identity"
+  type        = string
+  default     = "karpenter"
 }
 
 ################################################################################
@@ -179,7 +220,7 @@ variable "create_node_iam_role" {
 variable "cluster_ip_family" {
   description = "The IP family used to assign Kubernetes pod and service addresses. Valid values are `ipv4` (default) and `ipv6`. Note: If `ipv6` is specified, the `AmazonEKS_CNI_IPv6_Policy` must exist in the account. This policy is created by the EKS module with `create_cni_ipv6_iam_policy = true`"
   type        = string
-  default     = null
+  default     = "ipv4"
 }
 
 variable "node_iam_role_arn" {
@@ -195,7 +236,7 @@ variable "node_iam_role_name" {
 }
 
 variable "node_iam_role_use_name_prefix" {
-  description = "Determines whether the IAM role name (`iam_role_name`) is used as a prefix"
+  description = "Determines whether the Node IAM role name (`node_iam_role_name`) is used as a prefix"
   type        = bool
   default     = true
 }
